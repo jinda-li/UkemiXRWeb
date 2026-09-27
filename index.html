@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>UkemiXR — Walk any real place, from a link</title>
+  <meta name="description" content="UkemiXR captures real spaces and turns them into worlds your customers can walk through in the browser or step inside in VR. No app, no download, no motion sickness." />
+  <meta name="theme-color" content="#0b0e13" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="UkemiXR — Walk any real place, from a link" />
+  <meta property="og:description" content="Walk, collide and step into any Gaussian splat — in the browser, in VR, without motion sickness." />
+  <meta property="og:image" content="/og.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body class="mode-intro">
+  <div id="boot" class="boot" aria-hidden="true">
+    <svg viewBox="0 0 32 32"><path d="M9 8v8.5a7 7 0 0 0 14 0V8" fill="none" stroke="#e8ecf1" stroke-width="3" stroke-linecap="round"/><circle cx="16" cy="25.5" r="2" fill="#4fd1c5"/></svg>
+  </div>
+
+  <canvas id="view" tabindex="0" aria-label="3D scene"></canvas>
+  <div class="scrim" aria-hidden="true"></div>
+
+  <header class="bar">
+    <a class="brand" href="#" id="home" aria-label="UkemiXR home">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M9 8v8.5a7 7 0 0 0 14 0V8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+        <circle cx="16" cy="25.5" r="2" fill="var(--accent)" />
+      </svg>
+      <span class="brand-name">UkemiXR</span>
+    </a>
+
+    <nav class="nav intro-only" aria-label="Page sections">
+      <a href="#demo">Demo</a>
+      <a href="#value">Why UkemiXR</a>
+      <a href="#industries">Industries</a>
+      <a href="#how">How it works</a>
+    </nav>
+
+    <div class="bar-actions">
+      <div class="walk-only scene-switch">
+        <select id="sample" class="btn select" aria-label="Switch scene"></select>
+      </div>
+      <button id="open" class="btn walk-only" type="button" title="Open your own capture (.spz / .ply)">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3.5M6.2 7.2 10 3.5l3.8 3.7M3.5 12.5v2A2 2 0 0 0 5.5 16.5h9a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Open file</span>
+      </button>
+      <button id="vr" class="btn primary" type="button" disabled>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 7.5A2 2 0 0 1 4.5 5.5h11a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-3l-1.6-2.2a1.1 1.1 0 0 0-1.8 0L7.5 14.5h-3a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span id="vr-label">Checking VR…</span>
+      </button>
+      <button id="settings-toggle" class="btn icon walk-only" type="button" aria-label="Settings" aria-expanded="false">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M4 14h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="6" r="2" fill="var(--panel-solid)" stroke="currentColor" stroke-width="1.6"/><circle cx="12.5" cy="14" r="2" fill="var(--panel-solid)" stroke="currentColor" stroke-width="1.6"/></svg>
+      </button>
+    </div>
+    <input id="file" type="file" accept=".spz,.ply,.splat,.ksplat,.sog" hidden />
+  </header>
+
+  <!-- ============================================================ intro -->
+  <main id="intro" class="intro">
+    <section class="hero">
+      <div class="eyebrow"><span class="live-dot"></span>Live demo · runs right here in your browser</div>
+      <h1><span class="line">Walk any real place,</span> <em class="line">from a link.</em></h1>
+      <p class="lede">UkemiXR captures real spaces and turns them into worlds your customers can walk through on their computer — or step inside with a VR headset. No app. No download. No motion sickness.</p>
+      <div class="cta">
+        <button id="explore" class="btn primary large" type="button">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.8v10.4a.6.6 0 0 0 .9.5l8-5.2a.6.6 0 0 0 0-1L7.9 4.3a.6.6 0 0 0-.9.5z" fill="currentColor"/></svg>
+          Walk the demo
+        </button>
+        <button id="vr-hero" class="btn large ghost" type="button">Enter VR</button>
+        <a id="contact-hero" class="btn large ghost contact-link" href="#contact" hidden>Book a capture</a>
+      </div>
+      <ul class="proof">
+        <li><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l3.5 3.5L16 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Opens in any modern browser</li>
+        <li><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l3.5 3.5L16 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>VR-ready on Quest, Pico and Vision Pro</li>
+        <li><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l3.5 3.5L16 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Comfortable for first-time VR users</li>
+      </ul>
+      <div id="intro-progress" class="intro-progress" hidden>
+        <span id="intro-progress-label">Loading the demo…</span>
+        <div class="progress"><div id="intro-progress-bar"></div></div>
+      </div>
+      <a class="scroll-cue" href="#demo" aria-label="Scroll down">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </a>
+    </section>
+
+    <section id="demo" class="section">
+      <header class="section-head">
+        <span class="kicker">Try it</span>
+        <h2>Step into a space</h2>
+        <p>Pick a place and walk in. Use your keyboard and mouse here, or open this page in a VR headset.</p>
+      </header>
+      <div id="cards" class="cards"></div>
+    </section>
+
+    <section id="value" class="section">
+      <header class="section-head">
+        <span class="kicker">Why UkemiXR</span>
+        <h2>A place people can visit, without the trip</h2>
+        <p>Photos flatten a space and video decides where to look. A walkable world lets every customer explore the real place on their own terms — and remember it.</p>
+      </header>
+      <div class="value-grid">
+        <article class="value">
+          <div class="value-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5M6.5 10v8.5h11V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 18.5v-4.5h4v4.5" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></div>
+          <h3>Win the customer before the visit</h3>
+          <p>Buyers, tenants and guests walk the actual space from anywhere, at any hour. The ones who book a visit arrive already convinced.</p>
+        </article>
+        <article class="value">
+          <div class="value-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+          <h3>Share a place like a link</h3>
+          <p>Send it in a message, put it on a listing, embed it on your site. It opens instantly on a computer — nothing to install.</p>
+        </article>
+        <article class="value">
+          <div class="value-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 10v5m0 0-3 5m3-5 3 5M8 12.5h8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+          <h3>Presence a video can’t give</h3>
+          <p>Visitors move at their own pace, stop where they want and feel the real scale of the room. Walls and furniture are solid, just like being there.</p>
+        </article>
+        <article class="value">
+          <div class="value-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5A2.5 2.5 0 0 1 6 8h12a2.5 2.5 0 0 1 2.5 2.5v4A2.5 2.5 0 0 1 18 17h-3.2l-1.7-2.3a1.4 1.4 0 0 0-2.2 0L9.2 17H6a2.5 2.5 0 0 1-2.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></div>
+          <h3>Comfortable, even on day one of VR</h3>
+          <p>Our movement system keeps the view steady, so first-time visitors stay in the experience instead of taking the headset off.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="industries" class="section">
+      <header class="section-head">
+        <span class="kicker">Who it’s for</span>
+        <h2>Anywhere the space is the product</h2>
+      </header>
+      <ul class="industries">
+        <li><b>Real estate &amp; rentals</b><span>Let buyers tour every listing, from anywhere, at any hour.</span></li>
+        <li><b>Hotels &amp; venues</b><span>Sell the suite, the ballroom and the view before the booking.</span></li>
+        <li><b>Retail &amp; showrooms</b><span>Open your flagship store to customers who can’t come in.</span></li>
+        <li><b>Museums &amp; heritage</b><span>Preserve places as they are and open them to the world.</span></li>
+        <li><b>Events &amp; exhibitions</b><span>Let exhibitors and guests walk the venue before the doors open.</span></li>
+        <li><b>Facilities &amp; training</b><span>Walk new staff through sites that are hard or unsafe to visit.</span></li>
+      </ul>
+    </section>
+
+    <section id="how" class="section">
+      <header class="section-head">
+        <span class="kicker">How it works</span>
+        <h2>From your space to a shareable link</h2>
+      </header>
+      <ol class="steps">
+        <li><span class="step">1</span><b>We capture your space</b><p>Our team scans it on site in a single visit — rooms, gardens, whole buildings.</p></li>
+        <li><span class="step">2</span><b>We build your world</b><p>You get a walkable version of the real place, with floors, walls and furniture that behave like the real thing.</p></li>
+        <li><span class="step">3</span><b>You share one link</b><p>Your audience walks it on a computer, a phone or a VR headset. Update it whenever the space changes.</p></li>
+      </ol>
+      <p class="aside">Already have your own capture? <button id="import-hero" class="linklike" type="button">Drop in a .spz or .ply file</button> and walk it right now.</p>
+    </section>
+
+    <section id="contact" class="section closing">
+      <h2>See your space here</h2>
+      <p id="closing-text">Walk the demo now, then picture your own space here.</p>
+      <div class="cta">
+        <button id="explore-2" class="btn primary large" type="button">Walk the demo</button>
+        <a id="contact-2" class="btn large ghost contact-link" href="#" hidden>Get in touch</a>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>© 2026 UkemiXR</span>
+      <nav aria-label="Footer"><a href="#demo">Demo</a><a href="#value">Why UkemiXR</a><a href="#industries">Industries</a><a href="#how">How it works</a></nav>
+    </footer>
+  </main>
+
+  <!-- ============================================================ walk mode -->
+  <aside id="settings" class="panel settings" hidden>
+    <h2>Movement</h2>
+    <label class="row"><span>Walking speed <output id="o-speed"></output></span><input id="s-speed" type="range" min="0.8" max="4" step="0.1" /></label>
+    <label class="row"><span>Turn step <output id="o-snap"></output></span><input id="s-snap" type="range" min="15" max="90" step="5" /></label>
+
+    <h2>Camera</h2>
+    <label class="row">
+      <span>While walking</span>
+      <select id="s-follow">
+        <option value="auto">Automatic (steady cuts in VR, smooth on screen)</option>
+        <option value="discrete">Steady cuts (most comfortable in VR)</option>
+        <option value="smooth">Smooth follow</option>
+      </select>
+    </label>
+    <label class="row"><span>Distance behind you <output id="o-orbit"></output></span><input id="s-orbit" type="range" min="1" max="4" step="0.1" /></label>
+    <label class="row"><span>Cut every <output id="o-catchup"></output></span><input id="s-catchup" type="range" min="0.25" max="2" step="0.05" /></label>
+
+    <div class="row buttons">
+      <button id="s-respawn" class="btn small" type="button">Back to start</button>
+    </div>
+
+    <details class="advanced">
+      <summary>Advanced</summary>
+      <label class="check"><input id="s-debug" type="checkbox" /> <span>Show walkable area</span></label>
+      <label class="row"><span>Obstacle sensitivity <output id="o-solid"></output></span><input id="s-solid" type="range" min="0.3" max="4" step="0.1" /></label>
+      <p class="hint">Lower: even light furniture stops you. Higher: only solid surfaces do.</p>
+      <div class="row buttons"><button id="s-flip" class="btn small" type="button">Flip upside down</button></div>
+      <p class="hint" id="scene-info"></p>
+    </details>
+  </aside>
+
+  <section id="hud" class="hud walk-only">
+    <span id="hud-state" class="pill">Looking around</span>
+    <span id="hud-info"></span>
+  </section>
+
+  <section id="help" class="panel help walk-only">
+    <button id="help-toggle" class="help-title" type="button" aria-expanded="true">Controls</button>
+    <div class="help-body">
+      <div class="help-col">
+        <h3>Desktop / mobile</h3>
+        <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Shift</kbd> run</p>
+        <p><kbd>Q</kbd><kbd>E</kbd> turn · drag to look</p>
+        <p>Mobile: left half joystick, right half look</p>
+      </div>
+      <div class="help-col">
+        <h3>VR headset</h3>
+        <p>Left stick: walk</p>
+        <p>Right stick: turn</p>
+        <p><kbd>X</kbd>/<kbd>Y</kbd> menu · trigger to select</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="drop" class="drop" hidden>
+    <div class="drop-inner">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3.5M6.2 7.2 10 3.5l3.8 3.7M3.5 12.5v2A2 2 0 0 0 5.5 16.5h9a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <b>Drop to open</b>
+      <span>.spz · .ply · .splat · .ksplat · .sog</span>
+    </div>
+  </div>
+
+  <div id="loading" class="panel loading" hidden>
+    <div class="loading-title" id="loading-title">Loading</div>
+    <div class="progress"><div id="loading-bar"></div></div>
+    <div class="loading-stage" id="loading-stage"></div>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript><p class="noscript">JavaScript is required to open 3D scenes.</p></noscript>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
