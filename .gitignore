@@ -5,3 +5,6 @@ test-results/
 .vercel/
 # Dev-only sample sources (32 MB each, same scenes as the .spz); tests skip when missing
 SplatSamples/*.ply
+
+.vercel
+.env*
