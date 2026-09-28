@@ -211,10 +211,10 @@ check('headset walked through a wall fades the view', fadeSeen > 0.5, `max fade 
 await page.waitForTimeout(800);
 check('fade clears when the head comes back out', (await page.evaluate(() => window.ukemi.fade)) < 0.1);
 
-// Auto demo in the headset. Any button takes over (and does nothing else);
-// a headset left still for 8 s and then picked up is a new visitor: the
-// demo plays again from ON. WebXR gives a page no proximity sensor, so this
-// is inferred from the pose.
+// Auto demo in the headset. Any button takes over (and does nothing else).
+// WebXR cannot read the proximity sensor; what the page sees is the session
+// going hidden when nobody is in the headset and visible again when someone
+// looks in, and that restarts the demo from ON.
 await settle();
 await page.evaluate(() => window.ukemi.armDemo());
 await page.waitForTimeout(600);
@@ -223,19 +223,12 @@ check('auto demo plays in VR', await page.evaluate(() => window.ukemi.demo.activ
 await press('right', 'a-button');
 const took = await page.evaluate(() => ({ active: window.ukemi.demo.active, armed: window.ukemi.autoDemo, follow: window.ukemi.settings.follow }));
 check('A takes over from the demo without switching the camera', !took.active && took.armed && took.follow === followBefore, JSON.stringify(took));
-await page.waitForTimeout(5000);
-await press('right', 'b-button'); // still someone there: resets the 10 s idle timer
-await page.waitForTimeout(4500);
-const off = await page.evaluate(() => ({ off: window.ukemi.wear.off, active: window.ukemi.demo.active }));
-check('headset lying still for 8 s counts as taken off', off.off && !off.active, JSON.stringify(off));
-await page.evaluate(async () => {
-  const d = window.__xrDevice;
-  const y = d.position.y;
-  for (let i = 1; i <= 6; ++i) { d.position.y = y + i * 0.02; await new Promise((r) => setTimeout(r, 60)); }
-});
+await page.evaluate(() => window.__xrDevice.updateVisibilityState('hidden'));
+await page.waitForTimeout(1000);
+await page.evaluate(() => window.__xrDevice.updateVisibilityState('visible'));
 await page.waitForTimeout(800);
-const on = await page.evaluate(() => ({ active: window.ukemi.demo.active, phase: window.ukemi.demo.phaseIndex, off: window.ukemi.wear.off }));
-check('picking the headset up restarts the demo from ON', on.active && on.phase === 0 && !on.off, JSON.stringify(on));
+const on = await page.evaluate(() => ({ active: window.ukemi.demo.active, phase: window.ukemi.demo.phaseIndex, reason: window.ukemi.lastRestart?.reason }));
+check('session visible again (someone looks in) restarts the demo from ON', on.active && on.phase === 0 && on.reason === 'session visible', JSON.stringify(on));
 await page.evaluate(() => window.ukemi.disarmDemo());
 
 // IWER covers the page with its own view while presenting (a real headset has

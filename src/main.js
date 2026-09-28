@@ -572,12 +572,14 @@ async function toggleXr() {
     if (world) setMode(world.walkable ? 'walk' : 'object');
     else pendingExplore = true;
     applySettings();
-    // WebXR has no "headset worn" signal (no proximity sensor access), so a
-    // new visitor is inferred from what a page can see: the session becoming
-    // visible again, a long gap between frames (frame()), or a headset that
-    // lay still and is picked up (trackWear()).
+    // WebXR cannot read the proximity sensor. What a page does see is its
+    // effect: nobody in the headset -> the display goes off and the session
+    // turns hidden (and stops producing frames); someone looks in -> visible
+    // again. Either of those restarts the demo (see also frame()).
     session.addEventListener('visibilitychange', () => {
-      if (session.visibilityState === 'visible') headsetPutOn();
+      wearState = session.visibilityState;
+      updateDemoUi(true);
+      if (session.visibilityState === 'visible') headsetPutOn('session visible');
     });
     session.addEventListener('end', () => {
       xrSession = null;
@@ -635,7 +637,6 @@ function step(dt) {
   if (presenting) {
     sources.consumeLook();
     if (++xrFrames === 3) placeXrForMode();
-    trackWear(dt);
     const menuButton = xr.pressed('left', 4) || xr.pressed('left', 5);
     const aButton = xr.pressed('right', 4);
     // The press that takes over from the demo does nothing else.
@@ -724,7 +725,7 @@ function frame() {
   const dt = Math.min(gap, 0.1);
   // No frames for a while in the headset: it was taken off (the browser
   // stops rendering). Whoever puts it on next sees the demo from the start.
-  if (gap > 1.5 && renderer.xr.isPresenting) headsetPutOn();
+  if (gap > 1.5 && renderer.xr.isPresenting) headsetPutOn(`frame gap ${gap.toFixed(1)} s`);
   if (!paused) step(dt);
   window.ukemi?.afterFrame?.(dt);
   if (renderEnabled || renderer.xr.isPresenting) renderer.render(scene, camera);
@@ -1124,44 +1125,19 @@ function xrInputSeen() {
 }
 
 // A new visitor put the headset on: play the demo from the top.
-function headsetPutOn() {
+// ?weardebug shows on the in-headset badge which signal fired last, to check
+// on site that the headset's proximity sensor really gets through.
+const wearDebug = params.has('weardebug');
+let wearState = 'visible';
+let lastRestart = null; // { reason, at }
+function headsetPutOn(reason) {
+  lastRestart = { reason, at: time };
   if (autoDemo) playDemo();
+  else updateDemoUi(true);
 }
-addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') headsetPutOn(); });
-
-// Worn / not worn from the headset pose alone. A head is never perfectly
-// still; a headset on a table or a hook is (tracking noise is well under a
-// millimetre). WEAR_STILL seconds without real motion = taken off; a clear
-// move after that = picked up and put on.
-const WEAR_STILL = 8;
-const wear = { off: false, still: 0, win: 0, move: 0, turn: 0, pos: new THREE.Vector3(), quat: new THREE.Quaternion(), ready: false };
-function trackWear(dt) {
-  if (!wear.ready) {
-    wear.pos.copy(camera.position);
-    wear.quat.copy(camera.quaternion);
-    wear.ready = true;
-    return;
-  }
-  wear.move += camera.position.distanceTo(wear.pos);
-  wear.turn += camera.quaternion.angleTo(wear.quat);
-  wear.pos.copy(camera.position);
-  wear.quat.copy(camera.quaternion);
-  wear.win += dt;
-  if (wear.win < 0.5) return;
-  const still = wear.move < 0.002 && wear.turn < 0.004;
-  const pickedUp = wear.move > 0.03 || wear.turn > 0.1;
-  if (still) {
-    wear.still += wear.win;
-    if (wear.still >= WEAR_STILL) wear.off = true;
-  } else {
-    wear.still = 0;
-    if (wear.off && pickedUp) {
-      wear.off = false;
-      headsetPutOn();
-    }
-  }
-  wear.win = wear.move = wear.turn = 0;
-}
+addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') headsetPutOn('page visible');
+});
 
 // In the headset: a head-locked badge above the centre of view. On screen:
 // the #demo-banner. Both say whether UkemiXR's camera is on right now.
@@ -1175,7 +1151,7 @@ function updateDemoUi(force = false) {
   const ph = demo.phase;
   const secs = Math.ceil(demo.remaining);
   const presenting = renderer.xr.isPresenting;
-  const key = `${on}|${presenting}|${demo.phaseIndex}|${secs}`;
+  const key = `${on}|${presenting}|${demo.phaseIndex}|${secs}${wearDebug ? debugLine() : ''}`;
   const banner = $('demo-banner');
   if (on) $('demo-bar').style.width = `${(100 * demo.remaining) / PHASE_SECONDS}%`;
   if (!force && key === demoUiKey) return;
@@ -1197,6 +1173,11 @@ function updateDemoUi(force = false) {
   $('demo-sub').textContent = sub;
   $('demo-count').textContent = next;
   demoBadge.draw(ph.tech, sub, next, demo.remaining / PHASE_SECONDS);
+}
+
+function debugLine() {
+  const r = lastRestart ? `${lastRestart.reason}, ${Math.round(time - lastRestart.at)} s ago` : 'none yet';
+  return `session ${wearState} · last restart: ${r}`;
 }
 
 function makeDemoBadge() {
@@ -1249,7 +1230,7 @@ function makeDemoBadge() {
     g.fillText(next, W - 40, 176);
     g.textAlign = 'left';
     g.fillStyle = '#8b95a3';
-    g.fillText('Auto demo · press any button to take over', 36, 250);
+    g.fillText(wearDebug ? debugLine() : 'Auto demo · press any button to take over', 36, 250, W - 72);
     tex.needsUpdate = true;
   };
   m.position.set(0, 0.2, -1);
@@ -1267,7 +1248,7 @@ window.ukemi = {
   disarmDemo,
   noteUserInput,
   get autoDemo() { return autoDemo; },
-  get wear() { return wear; },
+  get lastRestart() { return lastRestart; },
   get world() { return world; },
   get spawn() { return spawn; },
   get splatMesh() { return splatMesh; },
