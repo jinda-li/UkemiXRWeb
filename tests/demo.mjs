@@ -1,5 +1,5 @@
 // The auto demo (?demo): the avatar walks a fixed route on its own, the camera
-// alternates 5 s steady cuts (UkemiXR ON) / 5 s first-person follow (OFF), each
+// alternates 8 s steady cuts (UkemiXR ON) / 5 s first-person follow (OFF), each
 // run starting back at the spawn, and the banner says which one is running.
 // Any key hands control to the visitor; 10 s idle plays the demo again.
 //   BASE=http://127.0.0.1:5173 node tests/demo.mjs [scene]
@@ -37,6 +37,7 @@ const r = await page.evaluate(() => {
       speed: u.player.speed, visible: u.avatar.root.visible, off: c.distanceTo(h),
       cam: c.toArray(), yaw: u.cameraRig.hmdYaw(), body: [u.player.body.x, u.player.body.z],
       banner: document.getElementById('demo-state').textContent,
+      bannerText: document.getElementById('demo-banner').textContent.replace(/\s+/g, ' ').trim(),
       bannerShown: !document.getElementById('demo-banner').hidden,
     });
   }
@@ -46,10 +47,11 @@ const r = await page.evaluate(() => {
 
 const phases = [];
 for (const f of r) if (phases.at(-1)?.phase !== f.phase) phases.push({ phase: f.phase, n: 0 }); else phases.at(-1).n++;
-check('phases alternate every 5 s', phases.length >= 7 && phases.slice(1, -1).every((p) => Math.abs(p.n + 1 - 300) <= 2),
+check('ON lasts 8 s, OFF 5 s', phases.length >= 6 && phases.slice(1, -1).every((p) => Math.abs(p.n + 1 - (p.phase === 0 ? 480 : 300)) <= 2),
   phases.map((p) => `${p.phase}:${p.n + 1}`).join(' '));
 check('banner shows ON in steady cuts and OFF in first person',
   r.every((f) => f.bannerShown && f.banner === (f.phase === 0 ? 'ON' : 'OFF') && f.follow === (f.phase === 0 ? 'discrete' : 'firstPerson')));
+check('banner says only ON / OFF and Ukemi Comfort Tech', r.every((f) => f.bannerText === `${f.phase === 0 ? 'ON' : 'OFF'} Ukemi Comfort Tech`), r[0].bannerText);
 const loco = r.filter((f) => f.loco);
 const stuck = loco.filter((f) => f.speed < 0.25).length / Math.max(1, loco.length);
 check('avatar walks by itself most of the time', loco.length > r.length * 0.6 && stuck < 0.15,

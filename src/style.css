@@ -294,17 +294,11 @@ kbd { display: inline-block; min-width: 20px; padding: 0 5px; margin-right: 2px;
 }
 
 /* Auto demo: which camera is running, readable from across a room. */
-.demo-banner { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); z-index: 30; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 6px 18px; width: min(640px, calc(100vw - 32px)); padding: 16px 20px 14px; border-radius: 18px; background: rgba(12,15,21,.9); border: 2px solid var(--demo, var(--accent)); box-shadow: 0 12px 40px rgba(0,0,0,.45); pointer-events: none; }
+.demo-banner { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 18px; max-width: calc(100vw - 32px); padding: 14px 24px 14px 14px; border-radius: 18px; background: rgba(12,15,21,.9); border: 2px solid var(--demo, var(--accent)); box-shadow: 0 12px 40px rgba(0,0,0,.45); pointer-events: none; }
 .demo-banner[hidden] { display: none; }
 .demo-banner.on { --demo: #34d399; }
 .demo-banner.off { --demo: #f87171; }
 .demo-state { font: 800 34px/1 var(--display, system-ui); color: #0b0e13; background: var(--demo); border-radius: 12px; padding: 10px 16px; min-width: 92px; text-align: center; letter-spacing: .02em; }
-.demo-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.demo-text b { font: 700 20px/1.2 var(--display, system-ui); color: #fff; }
-.demo-text span { color: var(--demo); font-weight: 600; font-size: 15px; }
-.demo-count { color: #c6cfdb; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.demo-bar { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
-.demo-hint { grid-column: 1 / -1; color: #8b95a3; font-size: 13px; }
-.demo-bar > span { display: block; height: 100%; background: var(--demo); width: 0; }
+.demo-title { font: 700 26px/1.2 var(--display, system-ui); color: #fff; white-space: nowrap; }
 #demo[aria-pressed="true"] { border-color: #34d399; color: #34d399; }
-@media (max-width: 720px) { .demo-banner { top: 64px; padding: 12px 14px; gap: 6px 12px; } .demo-state { font-size: 24px; min-width: 64px; } .demo-text b { font-size: 16px; } .demo-count { display: none; } }
+@media (max-width: 720px) { .demo-banner { top: 64px; padding: 10px 16px 10px 10px; gap: 12px; } .demo-state { font-size: 24px; min-width: 64px; } .demo-title { font-size: 18px; } }

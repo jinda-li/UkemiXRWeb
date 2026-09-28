@@ -1,7 +1,7 @@
 // Auto demo (booth mode): the avatar walks a fixed route by itself while the
-// camera alternates between UkemiXR's steady cuts (tech ON) and a plain
-// first-person follow camera (tech OFF). Each phase walks the same route from
-// the same start, then teleports back, so anyone who puts the headset on
+// camera alternates between UkemiXR's steady cuts (tech ON, 8 s) and a plain
+// first-person follow camera (tech OFF, 5 s). Each phase walks the same route
+// from the same start (OFF only its first part), then teleports back, so anyone who puts the headset on
 // feels the difference on identical motion without touching a controller.
 //
 // The route is fixed per scene: when a scene loads it is traced once from the
@@ -16,11 +16,11 @@
 import * as THREE from 'three';
 import { deltaAngle, yawForward } from '../locomotion/CameraRig.js';
 
-export const PHASE_SECONDS = 5;
 export const PHASES = [
-  { follow: 'discrete', tech: true },
-  { follow: 'firstPerson', tech: false },
+  { follow: 'discrete', tech: true, seconds: 8 },
+  { follow: 'firstPerson', tech: false, seconds: 5 },
 ];
+const LONGEST = Math.max(...PHASES.map((p) => p.seconds));
 
 const DEG = Math.PI / 180;
 const TRACE_DT = 1 / 30;
@@ -37,7 +37,7 @@ export class AutoDemo {
     this.active = false;
     this.stickMagnitude = 0.6;
     this.startDelay = 0.6; // stand still for a moment at the start of each run
-    this.walkSeconds = PHASE_SECONDS - this.startDelay - 0.4; // route length in time
+    this.walkSeconds = LONGEST - this.startDelay - 0.4; // route length in time
     this.turnRate = 3; // rad/s the walk heading may turn while pursuing the route
     this.viewTurnRate = 2.5; // OFF phase: how fast the view chases the heading
     this.snapThreshold = 55 * DEG; // ON phase: snap once the walk is this far off
@@ -53,7 +53,7 @@ export class AutoDemo {
   get phase() { return PHASES[this._phase]; }
   get follow() { return this.phase.follow; }
   // Seconds left in the current phase.
-  get remaining() { return Math.max(0, PHASE_SECONDS - this._t); }
+  get remaining() { return Math.max(0, this.phase.seconds - this._t); }
 
   play() {
     this.active = true;
@@ -111,7 +111,7 @@ export class AutoDemo {
   update(dt) {
     this._t += dt;
     this._clock += dt;
-    if (this._t >= PHASE_SECONDS) this.nextPhase();
+    if (this._t >= this.phase.seconds) this.nextPhase();
     const raw = { move: { x: 0, y: 0 }, right: { x: 0, y: 0 }, a: false, b: false };
     const route = this._ensureRoute();
     const runT = this._clock - this.startDelay;

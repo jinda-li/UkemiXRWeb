@@ -25,7 +25,7 @@ import { PlayerController } from './locomotion/PlayerController.js';
 import { Avatar, AVATARS } from './avatar/Avatar.js';
 import { XrControllers } from './xr/XrControllers.js';
 import { VrMenu } from './xr/VrMenu.js';
-import { AutoDemo, PHASE_SECONDS } from './demo/AutoDemo.js';
+import { AutoDemo } from './demo/AutoDemo.js';
 import { SAMPLES } from './samples.js';
 import { loadSettings, saveSettings, FOLLOW_MODES } from './settings.js';
 import { SITE } from './site.js';
@@ -1149,11 +1149,9 @@ let demoWasActive = false;
 function updateDemoUi(force = false) {
   const on = demo.active && mode === 'walk';
   const ph = demo.phase;
-  const secs = Math.ceil(demo.remaining);
   const presenting = renderer.xr.isPresenting;
-  const key = `${on}|${presenting}|${demo.phaseIndex}|${secs}${wearDebug ? debugLine() : ''}`;
+  const key = `${on}|${presenting}|${demo.phaseIndex}${wearDebug ? debugLine() : ''}`;
   const banner = $('demo-banner');
-  if (on) $('demo-bar').style.width = `${(100 * demo.remaining) / PHASE_SECONDS}%`;
   if (!force && key === demoUiKey) return;
   demoUiKey = key;
   if (demoWasActive !== autoDemo) {
@@ -1165,14 +1163,10 @@ function updateDemoUi(force = false) {
   banner.hidden = !on;
   demoBadge.visible = on && presenting;
   if (!on) return;
-  const sub = ph.tech ? 'Steady cuts · no motion sickness' : 'Ordinary first-person camera · the usual VR sickness';
-  const next = `${ph.tech ? 'OFF' : 'ON'} in ${secs} s`;
   banner.classList.toggle('on', ph.tech);
   banner.classList.toggle('off', !ph.tech);
   $('demo-state').textContent = ph.tech ? 'ON' : 'OFF';
-  $('demo-sub').textContent = sub;
-  $('demo-count').textContent = next;
-  demoBadge.draw(ph.tech, sub, next, demo.remaining / PHASE_SECONDS);
+  demoBadge.draw(ph.tech);
 }
 
 function debugLine() {
@@ -1181,7 +1175,8 @@ function debugLine() {
 }
 
 function makeDemoBadge() {
-  const W = 1024, H = 290;
+  // Only ON / OFF and the tech's name; ?weardebug adds a diagnostics line.
+  const W = 1024, H = wearDebug ? 250 : 200;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -1194,7 +1189,7 @@ function makeDemoBadge() {
     new THREE.PlaneGeometry(width, (width * H) / W),
     new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }),
   );
-  m.draw = (on, sub, next, left) => {
+  m.draw = (on) => {
     const col = on ? '#34d399' : '#f87171';
     g.clearRect(0, 0, W, H);
     g.fillStyle = 'rgba(12,15,21,0.9)';
@@ -1206,31 +1201,22 @@ function makeDemoBadge() {
     g.stroke();
     g.fillStyle = col;
     g.beginPath();
-    g.roundRect(36, 40, 230, 130, 28);
+    g.roundRect(36, 36, 250, 128, 28);
     g.fill();
     g.fillStyle = '#0b0e13';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = '800 84px system-ui, sans-serif';
-    g.fillText(on ? 'ON' : 'OFF', 151, 108);
+    g.font = '800 88px system-ui, sans-serif';
+    g.fillText(on ? 'ON' : 'OFF', 161, 104);
     g.textAlign = 'left';
     g.fillStyle = '#ffffff';
-    g.font = '700 54px system-ui, sans-serif';
-    g.fillText('UkemiXR comfort tech', 300, 78, W - 340);
-    g.fillStyle = col;
-    g.font = '600 38px system-ui, sans-serif';
-    g.fillText(sub, 300, 138, W - 340);
-    g.fillStyle = 'rgba(255,255,255,0.14)';
-    g.fillRect(36, 196, W - 72, 12);
-    g.fillStyle = col;
-    g.fillRect(36, 196, (W - 72) * left, 12);
-    g.fillStyle = '#c6cfdb';
-    g.font = '500 28px system-ui, sans-serif';
-    g.textAlign = 'right';
-    g.fillText(next, W - 40, 176);
-    g.textAlign = 'left';
-    g.fillStyle = '#8b95a3';
-    g.fillText(wearDebug ? debugLine() : 'Auto demo · press any button to take over', 36, 250, W - 72);
+    g.font = '700 64px system-ui, sans-serif';
+    g.fillText('Ukemi Comfort Tech', 320, 104, W - 360);
+    if (wearDebug) {
+      g.fillStyle = '#8b95a3';
+      g.font = '500 28px system-ui, sans-serif';
+      g.fillText(debugLine(), 36, 208, W - 72);
+    }
     tex.needsUpdate = true;
   };
   m.position.set(0, 0.2, -1);
