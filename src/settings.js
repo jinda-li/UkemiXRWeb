@@ -7,7 +7,7 @@
 const KEY = 'ukemixr.splatwalk.settings.v2';
 
 export const DEFAULTS = {
-  follow: 'auto', // auto | discrete | smooth
+  follow: 'discrete', // discrete (steady cuts) | firstPerson
   catchUp: 1.0,
   orbit: 2.5,
   snap: 35,
@@ -17,12 +17,16 @@ export const DEFAULTS = {
   xrScale: 0.75,
 };
 
+export const FOLLOW_MODES = ['discrete', 'firstPerson'];
+
 export function loadSettings() {
   let saved = {};
   try {
     saved = JSON.parse(localStorage.getItem(KEY) || '{}');
   } catch { /* private mode or blocked storage */ }
   const s = { ...DEFAULTS, ...saved };
+  // Older builds also had 'auto' and 'smooth'.
+  if (!FOLLOW_MODES.includes(s.follow)) s.follow = DEFAULTS.follow;
   const q = new URLSearchParams(location.search);
   if (q.has('debug')) s.debug = true;
   return s;

@@ -24,7 +24,7 @@ await page.waitForFunction(() => window.ukemi?.world && window.ukemi.player.worl
 await page.evaluate(() => {
   const u = window.ukemi;
   u.splatMesh.visible = false;
-  u.settings.follow = 'auto';
+  u.settings.follow = 'discrete';
   u.applySettings();
   window.__rec = [];
   u.afterFrame = () => {
@@ -88,14 +88,39 @@ r = await take();
 const turned = Math.atan2(Math.sin(r.at(-1).yaw - yaw0), Math.cos(r.at(-1).yaw - yaw0)) * 180 / Math.PI;
 check('right stick flick = one 35° snap turn', Math.abs(turned + 35) < 1, `${turned.toFixed(1)}°`);
 
-// In-headset menu: X opens it, aim the right controller at the bamboo
-// courtyard card, pull the trigger -> the scene switches without leaving VR.
 const press = async (hand, id) => {
   await page.evaluate(({ hand, id }) => window.__xrDevice.controllers[hand].updateButtonValue(id, 1), { hand, id });
   await page.waitForTimeout(250);
   await page.evaluate(({ hand, id }) => window.__xrDevice.controllers[hand].updateButtonValue(id, 0), { hand, id });
   await page.waitForTimeout(250);
 };
+
+check('controller guides shown in VR', await page.evaluate(() => {
+  const u = window.ukemi;
+  return ['left', 'right'].every((h) => u.xr.hands[h]?.grip.children.some((c) => c.setRows && c.visible));
+}));
+
+// A toggles steady cuts <-> first person; first person walks with the view
+// in the avatar head on every frame and the body hidden.
+await press('right', 'a-button');
+check('A switches to first person', await page.evaluate(() => window.ukemi.cameraRig.followMode === 'firstPerson'));
+await take();
+await setStick('left', 0, -1);
+await page.waitForTimeout(1200);
+r = await take();
+await setStick('left', 0, 0);
+await page.waitForTimeout(500);
+const fpLoco = r.filter((f) => f.state === 'locomotion').slice(2);
+const maxOff = Math.max(...fpLoco.map((f) => dist(f.cam, f.head)));
+const fpWalked = Math.hypot(r.at(-1).body[0] - r[0].body[0], r.at(-1).body[2] - r[0].body[2]);
+check('first person: view stays in the head while walking', fpLoco.length > 10 && maxOff < 0.05 && fpWalked > 0.2,
+  `${fpLoco.length} frames, max offset ${maxOff.toFixed(3)} m, walked ${fpWalked.toFixed(2)} m`);
+await press('right', 'a-button');
+check('A switches back to steady cuts', await page.evaluate(() => window.ukemi.cameraRig.followMode === 'discrete'));
+await take();
+
+// In-headset menu: X opens it, aim the right controller at the bamboo
+// courtyard card, pull the trigger -> the scene switches without leaving VR.
 await press('left', 'x-button');
 check('X opens the VR menu', await page.evaluate(() => window.ukemi.menu.open));
 // Aim: controller at chest height in front of the body, pointing at the card.

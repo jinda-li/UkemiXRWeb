@@ -25,8 +25,9 @@ import { PlayerController } from './locomotion/PlayerController.js';
 import { Avatar, AVATARS } from './avatar/Avatar.js';
 import { XrControllers } from './xr/XrControllers.js';
 import { VrMenu } from './xr/VrMenu.js';
+import { ComfortDemo, PHASE_SECONDS } from './demo/ComfortDemo.js';
 import { SAMPLES } from './samples.js';
-import { loadSettings, saveSettings } from './settings.js';
+import { loadSettings, saveSettings, FOLLOW_MODES } from './settings.js';
 import { SITE } from './site.js';
 
 const params = new URLSearchParams(location.search);
@@ -116,6 +117,10 @@ const cameraRig = new CameraRig({
 });
 player.cameraRig = cameraRig;
 
+// Hands-free booth demo (?demo, or the Comfort demo buttons).
+const demo = new ComfortDemo({ player, cameraRig, respawn: () => respawn() });
+demo.onPhase = () => { applySettings(); updateDemoUi(true); };
+
 // Desktop look: yaw/pitch of the camera inside the rig. In XR the headset
 // owns the camera pose and this is ignored.
 const look = { yaw: 0, pitch: -0.05 };
@@ -125,9 +130,13 @@ function applyDesktopLook() {
 }
 applyDesktopLook();
 
+const FOLLOW_LABELS = { discrete: 'Steady cuts', firstPerson: 'First person' };
+
 function applySettings() {
-  const inXr = renderer.xr.isPresenting;
-  cameraRig.followMode = settings.follow === 'auto' ? (inXr ? 'discrete' : 'smooth') : settings.follow;
+  cameraRig.followMode = demo.active ? demo.follow : settings.follow;
+  $('settings').classList.toggle('first-person', settings.follow === 'firstPerson');
+  $('s-follow').value = settings.follow;
+  guides.right.setRows(rightGuideRows());
   cameraRig.catchUpInterval = settings.catchUp;
   cameraRig.orbitRadius = settings.orbit;
   cameraRig.snapAngleDeg = settings.snap;
@@ -148,10 +157,12 @@ function setMode(next) {
   if (next === 'object') setupOrbit();
   else disposeOrbit();
   if (next === 'walk' && world) {
-    respawn();
+    if (demo.active) demo.restart();
+    else respawn();
     canvas.focus({ preventScroll: true });
   }
   updateHud();
+  updateDemoUi(true);
 }
 
 function explore() {
@@ -253,7 +264,7 @@ async function loadSplat(entry) {
       setMode(world.walkable ? 'walk' : 'object');
     }
     if (!world.walkable) toast('This capture has no floor to walk on, so it opens as a 3D view — drag to look around, scroll to zoom');
-    else if (mode !== 'intro') toast(`Now walking: ${title}`);
+    else if (mode !== 'intro' && !demo.active) toast(`Now walking: ${title}`);
   } catch (err) {
     console.error(err);
     mesh?.dispose?.();
@@ -460,12 +471,14 @@ const menu = new VrMenu({
       ...scenes,
       { id: 'close', kind: 'action', label: 'Continue', sub: 'Close menu', primary: true },
       { id: 'respawn', kind: 'action', label: 'Respawn', sub: 'Back to start' },
+      { id: 'demo', kind: 'action', label: demo.active ? 'Stop demo' : 'Comfort demo', sub: demo.active ? 'Walk yourself' : 'ON vs OFF, hands-free' },
       { id: 'exit', kind: 'action', label: 'Exit VR', sub: 'Back to browser' },
     ];
   },
   onPick: (id) => {
     if (id === 'close') closeMenu();
-    else if (id === 'respawn') { closeMenu(); respawn(); }
+    else if (id === 'respawn') { closeMenu(); demo.active ? demo.restart() : respawn(); }
+    else if (id === 'demo') { closeMenu(); demo.active ? stopDemo() : startDemo(); }
     else if (id === 'exit') { closeMenu(); xrSession?.end(); }
     else if (id === 'user' && userScene) { closeMenu(); if (current?.id !== 'user') loadSplat(userScene); }
     else {
@@ -488,9 +501,22 @@ function closeMenu() {
   xr.setRaysVisible(false);
 }
 
-// A small label on the left controller for the first seconds in VR.
-const hint = makeHintLabel('X / Y menu · left stick walk · right stick turn');
-let hintUntil = 0;
+// Controls cheat sheet on each controller while in VR.
+function rightGuideRows() {
+  return [['A', `Camera: ${FOLLOW_LABELS[settings.follow]}`, true], ['Stick', 'Turn'], ['Trigger', 'Select']];
+}
+const guides = {
+  left: makeGuideLabel([['Stick', 'Walk'], ['X / Y', 'Menu']]),
+  right: makeGuideLabel(rightGuideRows()),
+};
+
+function toggleFollow() {
+  if (demo.active) { demo.nextPhase(); return; }
+  const i = FOLLOW_MODES.indexOf(settings.follow);
+  settings.follow = FOLLOW_MODES[(i + 1) % FOLLOW_MODES.length];
+  applySettings();
+  try { xr.hands.right?.source?.gamepad?.hapticActuators?.[0]?.pulse?.(0.4, 40); } catch { /* optional */ }
+}
 
 async function initXr() {
   const label = $('vr-label');
@@ -536,7 +562,10 @@ async function toggleXr() {
     if (world) setMode(world.walkable ? 'walk' : 'object');
     else pendingExplore = true;
     applySettings();
-    hintUntil = time + 12;
+    // Headset taken off and put back on: a new visitor, start the demo over.
+    session.addEventListener('visibilitychange', () => {
+      if (session.visibilityState === 'visible' && demo.active && mode === 'walk') demo.restart();
+    });
     session.addEventListener('end', () => {
       xrSession = null;
       closeMenu();
@@ -547,6 +576,7 @@ async function toggleXr() {
       applySettings();
       if (world && mode === 'walk') player.enterIdle();
       if (mode === 'object') setupOrbit();
+      updateDemoUi(true);
     });
   } catch (err) {
     console.error(err);
@@ -558,7 +588,8 @@ async function toggleXr() {
 function placeXrForMode() {
   if (!world) return;
   if (mode === 'walk') {
-    if (player.state === 'idle') player.enterIdle();
+    if (demo.active) demo.restart();
+    else if (player.state === 'idle') player.enterIdle();
     else respawn();
   } else if (mode === 'object') {
     const { c, r } = sceneBounds();
@@ -592,6 +623,7 @@ function step(dt) {
     sources.consumeLook();
     if (++xrFrames === 3) placeXrForMode();
     if (xr.pressed('left', 4) || xr.pressed('left', 5)) (menu.open ? closeMenu() : openMenu());
+    if (xr.pressed('right', 4) && !menu.open && mode === 'walk') toggleFollow();
     if (menu.open) {
       raw = NO_INPUT;
       for (const hand of ['right', 'left']) {
@@ -612,6 +644,10 @@ function step(dt) {
     attract(time - attractT0);
     raw = NO_INPUT;
   }
+  if (demo.active && world && mode === 'walk' && !menu.open) {
+    raw = demo.update(dt);
+    updateDemoUi();
+  }
 
   input.update(time, raw);
   if (world && mode === 'walk') {
@@ -626,7 +662,7 @@ function step(dt) {
   // the body stands (first person only - in third person the camera is
   // clipped against walls by the rig itself).
   let wallTarget = 0;
-  if (presenting && world && mode === 'walk' && !player.isLocomoting) {
+  if (presenting && world && mode === 'walk' && !cameraRig.thirdPerson) {
     const h = cameraRig.hmdPosition(new THREE.Vector3());
     const a = player.avatarHead(new THREE.Vector3());
     const d = h.clone().sub(a);
@@ -638,10 +674,11 @@ function step(dt) {
   fade.visible = wallFade > 0.01;
   fade.material.opacity = wallFade;
 
-  // Controller hint for the first seconds in the headset.
-  const left = xr.hands.left;
-  hint.visible = presenting && time < hintUntil && !!left && !menu.open;
-  if (hint.visible && hint.parent !== left.grip) left.grip.add(hint);
+  for (const hand of ['left', 'right']) {
+    const g = guides[hand], e = xr.hands[hand];
+    g.visible = presenting && !!e && e.model.visible && mode === 'walk' && !demo.active;
+    if (g.visible && g.parent !== e.grip) e.grip.add(g);
+  }
   updateDebug();
   updateHelpCard(dt);
 }
@@ -663,7 +700,11 @@ function attract(t) {
 }
 
 function frame() {
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const gap = clock.getDelta();
+  const dt = Math.min(gap, 0.1);
+  // No frames for a while in the headset: it was taken off (the browser
+  // stops rendering). Whoever puts it on next sees the demo from the start.
+  if (gap > 1.5 && demo.active && renderer.xr.isPresenting && mode === 'walk') demo.restart();
   if (!paused) step(dt);
   window.ukemi?.afterFrame?.(dt);
   if (renderEnabled || renderer.xr.isPresenting) renderer.render(scene, camera);
@@ -744,7 +785,7 @@ function updateHelpCard(dt) {
 
 function updateHud() {
   const s = $('hud-state');
-  s.classList.toggle('third', mode === 'walk' && player.isLocomoting);
+  s.classList.toggle('third', mode === 'walk' && cameraRig.thirdPerson);
   s.classList.toggle('object', mode === 'object');
   s.textContent = mode === 'object' ? '3D view' : player.isLocomoting ? 'Walking' : 'Looking around';
   const b = player.body;
@@ -866,6 +907,8 @@ function setupUi() {
   $('sample').addEventListener('change', (e) => pickScene(e.target.value));
   $('explore').addEventListener('click', explore);
   $('vr-hero').addEventListener('click', vrHeroClicked);
+  $('demo-hero').addEventListener('click', () => { startDemo(); if (xrSupported && !xrSession) toggleXr(); });
+  $('demo').addEventListener('click', () => (demo.active ? stopDemo() : startDemo()));
   $('import-hero').addEventListener('click', () => $('file').click());
   $('explore-2').addEventListener('click', explore);
   // Contact buttons appear once src/site.js has somewhere to send people.
@@ -929,7 +972,6 @@ function setupUi() {
   bindRange('speed', 'speed', (v) => `${v.toFixed(1)} m/s`);
   bindRange('solid', 'solid', (v) => v.toFixed(1));
   const follow = $('s-follow');
-  follow.value = settings.follow;
   follow.addEventListener('change', () => { settings.follow = follow.value; applySettings(); });
   for (const key of ['debug']) {
     const el = $(`s-${key}`);
@@ -957,26 +999,160 @@ function openFile(f) {
   loadSplat({ id: 'user', name: f.name, file: f });
 }
 
-function makeHintLabel(text) {
+// A small panel above a controller: one row per control, key pill + action.
+// rows: [key, action, highlight?]
+function makeGuideLabel(rows) {
+  const W = 640, ROW = 96, PAD = 24;
   const c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 128;
+  c.width = W;
   const g = c.getContext('2d');
-  g.fillStyle = 'rgba(13,17,23,0.88)';
-  g.beginPath();
-  g.roundRect(0, 0, 1024, 128, 64);
-  g.fill();
-  g.fillStyle = '#ffffff';
-  g.font = '600 48px system-ui, "PingFang SC", "Microsoft YaHei", sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, 512, 66);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.03), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, toneMapped: false }));
-  m.position.set(0, 0.06, -0.02);
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, toneMapped: false });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+  const width = 0.12;
+  m.setRows = (list) => {
+    c.height = PAD * 2 + ROW * list.length;
+    g.clearRect(0, 0, W, c.height);
+    g.fillStyle = 'rgba(13,17,23,0.9)';
+    g.beginPath();
+    g.roundRect(0, 0, W, c.height, 36);
+    g.fill();
+    g.textBaseline = 'middle';
+    list.forEach(([key, action, hi], i) => {
+      const y = PAD + ROW * i + ROW / 2;
+      g.font = '700 40px system-ui, sans-serif';
+      const kw = Math.max(76, g.measureText(key).width + 36);
+      g.fillStyle = '#4fd1c5';
+      g.beginPath();
+      g.roundRect(PAD, y - 30, kw, 60, 30);
+      g.fill();
+      g.fillStyle = '#0d1117';
+      g.textAlign = 'center';
+      g.fillText(key, PAD + kw / 2, y + 2);
+      g.font = `${hi ? 700 : 500} 42px system-ui, sans-serif`;
+      g.fillStyle = hi ? '#ffffff' : 'rgba(255,255,255,0.78)';
+      g.textAlign = 'left';
+      g.fillText(action, PAD + kw + 22, y + 2, W - PAD * 2 - kw - 22);
+    });
+    tex.needsUpdate = true;
+    m.scale.set(width, (width * c.height) / W, 1);
+  };
+  m.setRows(rows);
+  m.position.set(0, 0.07, -0.01);
   m.rotation.x = -0.6;
+  m.renderOrder = 1e5;
+  m.visible = false;
+  return m;
+}
+
+// ---------------------------------------------------------------- comfort demo
+
+function startDemo() {
+  demo.active = true;
+  closeMenu();
+  if (world && mode === 'walk') demo.restart();
+  else explore(); // setMode('walk') restarts it
+  applySettings();
+  updateDemoUi(true);
+}
+
+function stopDemo() {
+  demo.stop();
+  applySettings();
+  if (world && mode === 'walk') player.enterIdle();
+  updateDemoUi(true);
+}
+
+// In the headset: a head-locked badge above the centre of view. On screen:
+// the #demo-banner. Both say whether UkemiXR's camera is on right now.
+const demoBadge = makeDemoBadge();
+camera.add(demoBadge);
+let demoUiKey = '';
+let demoWasActive = false;
+
+function updateDemoUi(force = false) {
+  const on = demo.active && mode === 'walk';
+  const ph = demo.phase;
+  const secs = Math.ceil(demo.remaining);
+  const presenting = renderer.xr.isPresenting;
+  const key = `${on}|${presenting}|${demo.phaseIndex}|${secs}`;
+  const banner = $('demo-banner');
+  if (on) $('demo-bar').style.width = `${(100 * demo.remaining) / PHASE_SECONDS}%`;
+  if (!force && key === demoUiKey) return;
+  demoUiKey = key;
+  if (demoWasActive !== demo.active) {
+    demoWasActive = demo.active;
+    $('demo').setAttribute('aria-pressed', String(demo.active));
+    $('demo-label').textContent = demo.active ? 'Stop demo' : 'Comfort demo';
+    menu.redraw();
+  }
+  banner.hidden = !on;
+  demoBadge.visible = on && presenting;
+  if (!on) return;
+  const sub = ph.tech ? 'Steady cuts · no motion sickness' : 'Ordinary first-person camera · the usual VR sickness';
+  const next = `${ph.tech ? 'OFF' : 'ON'} in ${secs} s`;
+  banner.classList.toggle('on', ph.tech);
+  banner.classList.toggle('off', !ph.tech);
+  $('demo-state').textContent = ph.tech ? 'ON' : 'OFF';
+  $('demo-sub').textContent = sub;
+  $('demo-count').textContent = next;
+  demoBadge.draw(ph.tech, sub, next, demo.remaining / PHASE_SECONDS);
+}
+
+function makeDemoBadge() {
+  const W = 1024, H = 240;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const width = 0.5;
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, (width * H) / W),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }),
+  );
+  m.draw = (on, sub, next, left) => {
+    const col = on ? '#34d399' : '#f87171';
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = 'rgba(12,15,21,0.9)';
+    g.beginPath();
+    g.roundRect(4, 4, W - 8, H - 8, 40);
+    g.fill();
+    g.lineWidth = 8;
+    g.strokeStyle = col;
+    g.stroke();
+    g.fillStyle = col;
+    g.beginPath();
+    g.roundRect(36, 40, 230, 130, 28);
+    g.fill();
+    g.fillStyle = '#0b0e13';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = '800 84px system-ui, sans-serif';
+    g.fillText(on ? 'ON' : 'OFF', 151, 108);
+    g.textAlign = 'left';
+    g.fillStyle = '#ffffff';
+    g.font = '700 54px system-ui, sans-serif';
+    g.fillText('UkemiXR comfort tech', 300, 78, W - 340);
+    g.fillStyle = col;
+    g.font = '600 38px system-ui, sans-serif';
+    g.fillText(sub, 300, 138, W - 340);
+    g.fillStyle = 'rgba(255,255,255,0.14)';
+    g.fillRect(36, 196, W - 72, 12);
+    g.fillStyle = col;
+    g.fillRect(36, 196, (W - 72) * left, 12);
+    g.fillStyle = '#c6cfdb';
+    g.font = '500 28px system-ui, sans-serif';
+    g.textAlign = 'right';
+    g.fillText(next, W - 40, 176);
+    tex.needsUpdate = true;
+  };
+  m.position.set(0, 0.2, -1);
+  m.rotation.x = 0.2;
   m.renderOrder = 1e5;
   m.visible = false;
   return m;
@@ -985,7 +1161,9 @@ function makeHintLabel(text) {
 // ---------------------------------------------------------------- test hooks
 
 window.ukemi = {
-  THREE, scene, camera, rig, renderer, input, sources, player, cameraRig, avatar, settings, menu, xr,
+  THREE, scene, camera, rig, renderer, input, sources, player, cameraRig, avatar, settings, menu, xr, demo,
+  startDemo,
+  stopDemo,
   get world() { return world; },
   get spawn() { return spawn; },
   get splatMesh() { return splatMesh; },
@@ -1020,6 +1198,7 @@ await avatarReady;
   const url = params.get('url');
   const sample = SAMPLES.find((s) => s.id === id) || (!url && id !== 'none' && SAMPLES[0]);
   if (params.has('walk')) pendingExplore = true;
+  if (params.has('demo')) { demo.active = true; pendingExplore = true; applySettings(); }
   if (url) { pendingExplore = true; loadSplat({ id: 'url', url }); }
   else if (sample) loadSplat(sample);
 }

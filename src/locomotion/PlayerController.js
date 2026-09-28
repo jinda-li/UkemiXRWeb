@@ -5,7 +5,8 @@
 //   Idle        first person; room-scale head movement drags the body along
 //               with collision (FollowHeadHorizontally).
 //   Locomotion  stick moves the body relative to the view yaw at moveSpeed;
-//               the camera rig handles the third-person catch-up.
+//               the camera rig handles the third-person catch-up (or, in
+//               its 'firstPerson' follow mode, keeps the view in the head).
 //
 // Transitions are the C#'s: movement-started enters locomotion, movement-ended
 // (with the stick really released) goes back to idle, which snaps the rig back
@@ -68,6 +69,8 @@ export class PlayerController {
     this._visualY += (this.body.y - this._visualY) * k;
     if (Math.abs(this.body.y - this._visualY) > 1.0) this._visualY = this.body.y;
     this._syncAvatar();
+    // The follow mode can change mid-walk (VR: A button).
+    this.avatar?.setFirstPerson(!this.cameraRig.thirdPerson);
     this.avatar?.update(dt, this.speed, this.moveSpeed);
   }
 
@@ -90,7 +93,7 @@ export class PlayerController {
     // -Z, hence the half turn.
     this.facingYaw = this.cameraRig.hmdYaw() + Math.PI;
     this.cameraRig.setLocomotionState(true);
-    this.avatar?.setFirstPerson(false);
+    this.avatar?.setFirstPerson(!this.cameraRig.thirdPerson);
   }
 
   _handleSnapTurn() {

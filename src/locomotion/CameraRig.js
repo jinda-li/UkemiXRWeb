@@ -15,6 +15,10 @@
 //               back (and to the side) so the avatar walks into view rather
 //               than out of the camera's head.
 //
+// Web addition: followMode 'firstPerson' skips the third-person part. While
+// locomoting the rig moves with the avatar head every frame (keeping any
+// physical head offset), and snap turns turn in place.
+//
 // "xrOrigin" is `rig` (the camera's parent), "hmd" is the camera itself. The
 // same code drives a WebXR headset (pose comes from the device) and the
 // desktop camera (pose comes from the mouse) because it only ever moves the
@@ -79,11 +83,10 @@ export class CameraRig {
     this.strafeNudgeSideMeters = 0;
     this.backwardSnapBackMeters = 2.0;
 
-    // Web additions. 'discrete' is the Unity behaviour. 'smooth' eases the
-    // rig towards the orbit point every frame - nicer on a flat screen, where
-    // 4 Hz cuts read as dropped frames, but not what you want in a headset.
-    this.followMode = 'discrete';
-    this.smoothFollowRate = 5;
+    // Web addition: 'discrete' (steady cuts) is the Unity behaviour,
+    // 'firstPerson' stays in the avatar head while walking.
+    this._followMode = 'discrete';
+    this._lastHead = new THREE.Vector3();
     // Keep the headset's yaw when snapping back into the head at the end of a
     // walk. Unity rotates the view to the avatar head's yaw there; with VRIK
     // that head faces where you were looking anyway, but this avatar turns to
@@ -116,6 +119,26 @@ export class CameraRig {
   }
 
   get viewYaw() { return this._viewYaw; }
+
+  get followMode() { return this._followMode; }
+
+  // Switching mid-walk takes effect right away: into the head, or a cut to
+  // the orbit point.
+  set followMode(mode) {
+    if (mode === this._followMode) return;
+    this._followMode = mode;
+    if (!this.isLocomoting) return;
+    if (mode === 'firstPerson') {
+      this.snapRigToAvatarHead();
+      this.avatarHead(this._lastHead);
+    } else {
+      this._viewYaw = this.hmdYaw();
+      this._catchUpTimer = 0;
+      this._sinceCut = this.minCutSpacing;
+    }
+  }
+
+  get thirdPerson() { return this.isLocomoting && this._followMode !== 'firstPerson'; }
 
   _rotateRigAroundPivot(pivot, deltaYaw) {
     if (Math.abs(deltaYaw) < 1e-9) return;
@@ -163,10 +186,13 @@ export class CameraRig {
     const started = locomoting && !this.isLocomoting;
     this.isLocomoting = locomoting;
     this._viewYaw = this.hmdYaw();
-    if (started) {
-      this._catchUpTimer = this.catchUpInterval;
-      this._tryNudgeCameraOnLocomotionStart();
+    if (!started) return;
+    if (this._followMode === 'firstPerson') {
+      this.avatarHead(this._lastHead);
+      return;
     }
+    this._catchUpTimer = this.catchUpInterval;
+    this._tryNudgeCameraOnLocomotionStart();
   }
 
   snapLeft() { this._applySnap(-1); }
@@ -175,8 +201,11 @@ export class CameraRig {
   lateUpdate(dt) {
     if (this.catchUpOnlyWhileLocomoting && !this.isLocomoting) return;
 
-    if (this.followMode === 'smooth') {
-      this._smoothFollow(dt);
+    if (this._followMode === 'firstPerson') {
+      const head = this.avatarHead(new THREE.Vector3());
+      const d = head.clone().sub(this._lastHead);
+      this._lastHead.copy(head);
+      this._translateRig(d.x, d.y, d.z);
       return;
     }
 
@@ -211,7 +240,7 @@ export class CameraRig {
   _applySnap(direction) {
     // +1 is a right turn, i.e. clockwise from above: negative yaw here.
     this._viewYaw -= direction * this.snapAngleDeg * DEG;
-    if (this.isLocomoting) this._snapOrbitUsingViewYaw();
+    if (this.thirdPerson) this._snapOrbitUsingViewYaw();
     else this._snapTurnUsingViewYaw();
   }
 
@@ -243,14 +272,6 @@ export class CameraRig {
     this._translateRig(delta.x, delta.y, delta.z);
     this.onTeleport?.('catchup', delta.length());
     return true;
-  }
-
-  _smoothFollow(dt) {
-    const desired = this._desiredOrbitHmdPosition();
-    const hmd = this.hmdPosition(new THREE.Vector3());
-    const k = 1 - Math.exp(-this.smoothFollowRate * dt);
-    const d = desired.sub(hmd).multiplyScalar(k);
-    this._translateRig(d.x, d.y, d.z);
   }
 
   _desiredOrbitHmdPosition() {

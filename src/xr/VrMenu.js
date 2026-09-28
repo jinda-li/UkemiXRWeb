@@ -182,7 +182,7 @@ export class VrMenu {
     });
 
     // Controls legend: key in white, what it does in the dimmer tone.
-    const legend = [['Left stick', 'walk'], ['Right stick', 'turn 35°'], ['X / Y', 'menu'], ['Trigger', 'select']];
+    const legend = [['Left stick', 'walk'], ['Right stick', 'turn 35°'], ['X / Y', 'menu'], ['Trigger', 'select'], ['A', 'steady cuts / first person']];
     legend.forEach(([key, what], k) => {
       const x = 48 + (k % 2) * 470, y = 580 + Math.floor(k / 2) * 48;
       c.font = `600 25px ${FONT}`;
