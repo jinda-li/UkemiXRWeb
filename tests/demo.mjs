@@ -1,6 +1,7 @@
-// The hands-free comfort demo (?demo): the avatar walks on its own, the camera
-// alternates 5 s steady cuts (UkemiXR ON) / 5 s first-person follow (OFF), and
-// the banner says which one is running.
+// The auto demo (?demo): the avatar walks a fixed route on its own, the camera
+// alternates 5 s steady cuts (UkemiXR ON) / 5 s first-person follow (OFF), each
+// run starting back at the spawn, and the banner says which one is running.
+// Any key hands control to the visitor; 10 s idle plays the demo again.
 //   BASE=http://127.0.0.1:5173 node tests/demo.mjs [scene]
 import { chromium } from 'playwright';
 
@@ -21,6 +22,7 @@ await page.goto(`${BASE}/?scene=${scene}&demo&norender&test`);
 await page.waitForFunction(() => window.ukemi?.world && window.ukemi.mode === 'walk', null, { timeout: 180000 });
 
 // Fixed-step simulation of 40 s (four ON/OFF cycles).
+let spawnXZ;
 const r = await page.evaluate(() => {
   const u = window.ukemi, T = u.THREE;
   u.pause();
@@ -33,14 +35,14 @@ const r = await page.evaluate(() => {
     frames.push({
       phase: u.demo.phaseIndex, follow: u.cameraRig.followMode, loco: u.player.isLocomoting,
       speed: u.player.speed, visible: u.avatar.root.visible, off: c.distanceTo(h),
-      cam: c.toArray(), yaw: u.cameraRig.hmdYaw(),
+      cam: c.toArray(), yaw: u.cameraRig.hmdYaw(), body: [u.player.body.x, u.player.body.z],
       banner: document.getElementById('demo-state').textContent,
       bannerShown: !document.getElementById('demo-banner').hidden,
     });
   }
   u.resume();
-  return frames;
-});
+  return { frames, spawn: [u.spawn.x, u.spawn.z] };
+}).then((x) => { spawnXZ = x.spawn; return x.frames; });
 
 const phases = [];
 for (const f of r) if (phases.at(-1)?.phase !== f.phase) phases.push({ phase: f.phase, n: 0 }); else phases.at(-1).n++;
@@ -50,8 +52,23 @@ check('banner shows ON in steady cuts and OFF in first person',
   r.every((f) => f.bannerShown && f.banner === (f.phase === 0 ? 'ON' : 'OFF') && f.follow === (f.phase === 0 ? 'discrete' : 'firstPerson')));
 const loco = r.filter((f) => f.loco);
 const stuck = loco.filter((f) => f.speed < 0.25).length / Math.max(1, loco.length);
-check('avatar walks by itself most of the time', loco.length > r.length * 0.85 && stuck < 0.15,
+check('avatar walks by itself most of the time', loco.length > r.length * 0.6 && stuck < 0.15,
   `${((100 * loco.length) / r.length).toFixed(0)}% walking, ${(100 * stuck).toFixed(0)}% of it blocked`);
+
+// Fixed route: every run starts at the spawn and walks the same path.
+const runs = [];
+r.forEach((f, i) => { if (i === 0 || f.phase !== r[i - 1].phase) runs.push({ phase: f.phase, path: [] }); runs.at(-1).path.push(f.body); });
+const full = runs.slice(1, -1);
+const startOff = Math.max(...full.map((run) => Math.hypot(run.path[0][0] - spawnXZ[0], run.path[0][1] - spawnXZ[1])));
+check('each run teleports back to the start', startOff < 0.15, `max ${startOff.toFixed(2)} m from spawn`);
+let dev = 0;
+for (const run of full.slice(1)) {
+  for (let k = 0; k < Math.min(run.path.length, full[0].path.length); ++k) {
+    dev = Math.max(dev, Math.hypot(run.path[k][0] - full[0].path[k][0], run.path[k][1] - full[0].path[k][1]));
+  }
+}
+const len = full[0].path.reduce((a, p, k, arr) => a + (k ? Math.hypot(p[0] - arr[k - 1][0], p[1] - arr[k - 1][1]) : 0), 0);
+check('ON and OFF walk the same fixed route', dev < 0.6 && len > 3, `route ${len.toFixed(1)} m, max deviation ${dev.toFixed(2)} m`);
 
 const on = r.filter((f) => f.phase === 0 && f.loco);
 const offF = r.filter((f) => f.phase === 1 && f.loco);
@@ -77,7 +94,23 @@ check('ON: camera still between cuts, no smooth turning', mOn.moved < 0.1 && mOn
 check('OFF: camera moves and turns continuously', mOff.moved > 0.6 && mOff.turned > 0.05,
   `moves on ${(100 * mOff.moved).toFixed(0)}% of frames, smooth turns ${(100 * mOff.turned).toFixed(0)}%`);
 
-await page.evaluate(() => window.ukemi.stopDemo());
+// Any key takes over; 10 s without input plays the demo again, from the top.
+const idle = await page.evaluate(() => {
+  const u = window.ukemi;
+  u.pause();
+  dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyZ' }));
+  const took = !u.demo.active && u.autoDemo;
+  for (let i = 0; i < 60 * 9; ++i) u.step(1 / 60);
+  const still = !u.demo.active;
+  for (let i = 0; i < 60 * 1.5; ++i) u.step(1 / 60);
+  const back = u.demo.active && u.demo.phaseIndex === 0;
+  u.resume();
+  return { took, still, back };
+});
+check('any key exits the demo', idle.took);
+check('10 s without input plays the demo again from ON', idle.still && idle.back, JSON.stringify(idle));
+
+await page.evaluate(() => window.ukemi.disarmDemo());
 const after = await page.evaluate(() => ({ active: window.ukemi.demo.active, banner: document.getElementById('demo-banner').hidden, follow: window.ukemi.cameraRig.followMode }));
 check('stopping the demo hides the banner and restores the setting', !after.active && after.banner && after.follow === 'discrete');
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));

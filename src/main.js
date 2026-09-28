@@ -25,7 +25,7 @@ import { PlayerController } from './locomotion/PlayerController.js';
 import { Avatar, AVATARS } from './avatar/Avatar.js';
 import { XrControllers } from './xr/XrControllers.js';
 import { VrMenu } from './xr/VrMenu.js';
-import { ComfortDemo, PHASE_SECONDS } from './demo/ComfortDemo.js';
+import { AutoDemo, PHASE_SECONDS } from './demo/AutoDemo.js';
 import { SAMPLES } from './samples.js';
 import { loadSettings, saveSettings, FOLLOW_MODES } from './settings.js';
 import { SITE } from './site.js';
@@ -117,9 +117,20 @@ const cameraRig = new CameraRig({
 });
 player.cameraRig = cameraRig;
 
-// Hands-free booth demo (?demo, or the Comfort demo buttons).
-const demo = new ComfortDemo({ player, cameraRig, respawn: () => respawn() });
+// Auto demo (booth mode: ?demo, the Auto demo buttons, the VR menu). While
+// armed it plays whenever nobody is driving: any key or button hands control
+// to the visitor, IDLE_RESUME seconds without input plays it again, and a
+// headset that is put (back) on starts it over from the top.
+const demo = new AutoDemo({
+  player,
+  cameraRig,
+  start: () => (spawn?.ok ? { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawnYaw } : null),
+  respawn: () => respawn(),
+});
 demo.onPhase = () => { applySettings(); updateDemoUi(true); };
+const IDLE_RESUME = 10;
+let autoDemo = false; // armed
+let lastInputAt = 0;
 
 // Desktop look: yaw/pitch of the camera inside the rig. In XR the headset
 // owns the camera pose and this is ignored.
@@ -471,14 +482,14 @@ const menu = new VrMenu({
       ...scenes,
       { id: 'close', kind: 'action', label: 'Continue', sub: 'Close menu', primary: true },
       { id: 'respawn', kind: 'action', label: 'Respawn', sub: 'Back to start' },
-      { id: 'demo', kind: 'action', label: demo.active ? 'Stop demo' : 'Comfort demo', sub: demo.active ? 'Walk yourself' : 'ON vs OFF, hands-free' },
+      { id: 'demo', kind: 'action', label: autoDemo ? 'Stop auto demo' : 'Auto demo', sub: autoDemo ? 'Turn booth mode off' : 'ON vs OFF, hands-free' },
       { id: 'exit', kind: 'action', label: 'Exit VR', sub: 'Back to browser' },
     ];
   },
   onPick: (id) => {
     if (id === 'close') closeMenu();
-    else if (id === 'respawn') { closeMenu(); demo.active ? demo.restart() : respawn(); }
-    else if (id === 'demo') { closeMenu(); demo.active ? stopDemo() : startDemo(); }
+    else if (id === 'respawn') { closeMenu(); respawn(); }
+    else if (id === 'demo') { closeMenu(); autoDemo ? disarmDemo() : armDemo(); }
     else if (id === 'exit') { closeMenu(); xrSession?.end(); }
     else if (id === 'user' && userScene) { closeMenu(); if (current?.id !== 'user') loadSplat(userScene); }
     else {
@@ -511,7 +522,6 @@ const guides = {
 };
 
 function toggleFollow() {
-  if (demo.active) { demo.nextPhase(); return; }
   const i = FOLLOW_MODES.indexOf(settings.follow);
   settings.follow = FOLLOW_MODES[(i + 1) % FOLLOW_MODES.length];
   applySettings();
@@ -562,9 +572,12 @@ async function toggleXr() {
     if (world) setMode(world.walkable ? 'walk' : 'object');
     else pendingExplore = true;
     applySettings();
-    // Headset taken off and put back on: a new visitor, start the demo over.
+    // WebXR has no "headset worn" signal (no proximity sensor access), so a
+    // new visitor is inferred from what a page can see: the session becoming
+    // visible again, a long gap between frames (frame()), or a headset that
+    // lay still and is picked up (trackWear()).
     session.addEventListener('visibilitychange', () => {
-      if (session.visibilityState === 'visible' && demo.active && mode === 'walk') demo.restart();
+      if (session.visibilityState === 'visible') headsetPutOn();
     });
     session.addEventListener('end', () => {
       xrSession = null;
@@ -588,7 +601,7 @@ async function toggleXr() {
 function placeXrForMode() {
   if (!world) return;
   if (mode === 'walk') {
-    if (demo.active) demo.restart();
+    if (autoDemo) playDemo();
     else if (player.state === 'idle') player.enterIdle();
     else respawn();
   } else if (mode === 'object') {
@@ -622,8 +635,14 @@ function step(dt) {
   if (presenting) {
     sources.consumeLook();
     if (++xrFrames === 3) placeXrForMode();
-    if (xr.pressed('left', 4) || xr.pressed('left', 5)) (menu.open ? closeMenu() : openMenu());
-    if (xr.pressed('right', 4) && !menu.open && mode === 'walk') toggleFollow();
+    trackWear(dt);
+    const menuButton = xr.pressed('left', 4) || xr.pressed('left', 5);
+    const aButton = xr.pressed('right', 4);
+    // The press that takes over from the demo does nothing else.
+    if (!(xrInputSeen() && noteUserInput())) {
+      if (menuButton) (menu.open ? closeMenu() : openMenu());
+      if (aButton && !menu.open && mode === 'walk') toggleFollow();
+    }
     if (menu.open) {
       raw = NO_INPUT;
       for (const hand of ['right', 'left']) {
@@ -644,6 +663,7 @@ function step(dt) {
     attract(time - attractT0);
     raw = NO_INPUT;
   }
+  if (autoDemo && !demo.active && world && mode === 'walk' && !menu.open && time - lastInputAt > IDLE_RESUME) playDemo();
   if (demo.active && world && mode === 'walk' && !menu.open) {
     raw = demo.update(dt);
     updateDemoUi();
@@ -704,7 +724,7 @@ function frame() {
   const dt = Math.min(gap, 0.1);
   // No frames for a while in the headset: it was taken off (the browser
   // stops rendering). Whoever puts it on next sees the demo from the start.
-  if (gap > 1.5 && demo.active && renderer.xr.isPresenting && mode === 'walk') demo.restart();
+  if (gap > 1.5 && renderer.xr.isPresenting) headsetPutOn();
   if (!paused) step(dt);
   window.ukemi?.afterFrame?.(dt);
   if (renderEnabled || renderer.xr.isPresenting) renderer.render(scene, camera);
@@ -907,8 +927,8 @@ function setupUi() {
   $('sample').addEventListener('change', (e) => pickScene(e.target.value));
   $('explore').addEventListener('click', explore);
   $('vr-hero').addEventListener('click', vrHeroClicked);
-  $('demo-hero').addEventListener('click', () => { startDemo(); if (xrSupported && !xrSession) toggleXr(); });
-  $('demo').addEventListener('click', () => (demo.active ? stopDemo() : startDemo()));
+  $('demo-hero').addEventListener('click', () => { armDemo(); if (xrSupported && !xrSession) toggleXr(); });
+  $('demo').addEventListener('click', () => (autoDemo ? disarmDemo() : armDemo()));
   $('import-hero').addEventListener('click', () => $('file').click());
   $('explore-2').addEventListener('click', explore);
   // Contact buttons appear once src/site.js has somewhere to send people.
@@ -1047,22 +1067,100 @@ function makeGuideLabel(rows) {
   return m;
 }
 
-// ---------------------------------------------------------------- comfort demo
+// ---------------------------------------------------------------- auto demo
 
-function startDemo() {
-  demo.active = true;
+function armDemo() {
+  autoDemo = true;
   closeMenu();
-  if (world && mode === 'walk') demo.restart();
-  else explore(); // setMode('walk') restarts it
+  if (world && mode === 'walk') playDemo();
+  else { demo.active = true; explore(); } // setMode('walk') restarts it
   applySettings();
   updateDemoUi(true);
 }
 
-function stopDemo() {
+function disarmDemo() {
+  autoDemo = false;
+  pauseDemo();
+}
+
+function playDemo() {
+  if (!world || mode !== 'walk') return;
+  closeMenu();
+  demo.play();
+  applySettings();
+  updateDemoUi(true);
+}
+
+// The visitor takes over: they walk on from wherever the demo left them.
+function pauseDemo() {
+  const was = demo.active;
   demo.stop();
   applySettings();
-  if (world && mode === 'walk') player.enterIdle();
+  if (was && world && mode === 'walk') player.enterIdle();
   updateDemoUi(true);
+}
+
+// Any key / click / touch / controller button. Returns true when it took
+// over from a running demo.
+function noteUserInput() {
+  lastInputAt = time;
+  if (!demo.active) return false;
+  pauseDemo();
+  return true;
+}
+for (const type of ['keydown', 'pointerdown', 'wheel', 'touchstart']) {
+  addEventListener(type, () => noteUserInput(), { capture: true, passive: true });
+}
+
+function xrInputSeen() {
+  const session = renderer.xr.getSession();
+  if (!session) return false;
+  for (const source of session.inputSources) {
+    const gp = source.gamepad;
+    if (!gp) continue;
+    if (gp.buttons.some((b) => b.pressed) || gp.axes.some((v) => Math.abs(v) > 0.5)) return true;
+  }
+  return false;
+}
+
+// A new visitor put the headset on: play the demo from the top.
+function headsetPutOn() {
+  if (autoDemo) playDemo();
+}
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') headsetPutOn(); });
+
+// Worn / not worn from the headset pose alone. A head is never perfectly
+// still; a headset on a table or a hook is (tracking noise is well under a
+// millimetre). WEAR_STILL seconds without real motion = taken off; a clear
+// move after that = picked up and put on.
+const WEAR_STILL = 8;
+const wear = { off: false, still: 0, win: 0, move: 0, turn: 0, pos: new THREE.Vector3(), quat: new THREE.Quaternion(), ready: false };
+function trackWear(dt) {
+  if (!wear.ready) {
+    wear.pos.copy(camera.position);
+    wear.quat.copy(camera.quaternion);
+    wear.ready = true;
+    return;
+  }
+  wear.move += camera.position.distanceTo(wear.pos);
+  wear.turn += camera.quaternion.angleTo(wear.quat);
+  wear.pos.copy(camera.position);
+  wear.quat.copy(camera.quaternion);
+  wear.win += dt;
+  if (wear.win < 0.5) return;
+  const still = wear.move < 0.002 && wear.turn < 0.004;
+  const pickedUp = wear.move > 0.03 || wear.turn > 0.1;
+  if (still) {
+    wear.still += wear.win;
+    if (wear.still >= WEAR_STILL) wear.off = true;
+  } else {
+    wear.still = 0;
+    if (wear.off && pickedUp) {
+      wear.off = false;
+      headsetPutOn();
+    }
+  }
+  wear.win = wear.move = wear.turn = 0;
 }
 
 // In the headset: a head-locked badge above the centre of view. On screen:
@@ -1082,10 +1180,10 @@ function updateDemoUi(force = false) {
   if (on) $('demo-bar').style.width = `${(100 * demo.remaining) / PHASE_SECONDS}%`;
   if (!force && key === demoUiKey) return;
   demoUiKey = key;
-  if (demoWasActive !== demo.active) {
-    demoWasActive = demo.active;
-    $('demo').setAttribute('aria-pressed', String(demo.active));
-    $('demo-label').textContent = demo.active ? 'Stop demo' : 'Comfort demo';
+  if (demoWasActive !== autoDemo) {
+    demoWasActive = autoDemo;
+    $('demo').setAttribute('aria-pressed', String(autoDemo));
+    $('demo-label').textContent = autoDemo ? 'Stop auto demo' : 'Auto demo';
     menu.redraw();
   }
   banner.hidden = !on;
@@ -1102,7 +1200,7 @@ function updateDemoUi(force = false) {
 }
 
 function makeDemoBadge() {
-  const W = 1024, H = 240;
+  const W = 1024, H = 290;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -1149,6 +1247,9 @@ function makeDemoBadge() {
     g.font = '500 28px system-ui, sans-serif';
     g.textAlign = 'right';
     g.fillText(next, W - 40, 176);
+    g.textAlign = 'left';
+    g.fillStyle = '#8b95a3';
+    g.fillText('Auto demo · press any button to take over', 36, 250);
     tex.needsUpdate = true;
   };
   m.position.set(0, 0.2, -1);
@@ -1162,8 +1263,11 @@ function makeDemoBadge() {
 
 window.ukemi = {
   THREE, scene, camera, rig, renderer, input, sources, player, cameraRig, avatar, settings, menu, xr, demo,
-  startDemo,
-  stopDemo,
+  armDemo,
+  disarmDemo,
+  noteUserInput,
+  get autoDemo() { return autoDemo; },
+  get wear() { return wear; },
   get world() { return world; },
   get spawn() { return spawn; },
   get splatMesh() { return splatMesh; },
@@ -1198,7 +1302,7 @@ await avatarReady;
   const url = params.get('url');
   const sample = SAMPLES.find((s) => s.id === id) || (!url && id !== 'none' && SAMPLES[0]);
   if (params.has('walk')) pendingExplore = true;
-  if (params.has('demo')) { demo.active = true; pendingExplore = true; applySettings(); }
+  if (params.has('demo')) { autoDemo = true; demo.active = true; pendingExplore = true; applySettings(); }
   if (url) { pendingExplore = true; loadSplat({ id: 'url', url }); }
   else if (sample) loadSplat(sample);
 }

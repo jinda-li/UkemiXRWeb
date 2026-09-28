@@ -31,6 +31,7 @@ await page.evaluate(() => {
     const T = u.THREE, c = new T.Vector3(), h = new T.Vector3(), q = new T.Quaternion();
     u.camera.getWorldPosition(c); u.camera.getWorldQuaternion(q); u.player.avatarHead(h);
     const f = new T.Vector3(0, 0, -1).applyQuaternion(q);
+    window.__fc = (window.__fc || 0) + 1;
     window.__rec.push({ t: performance.now(), state: u.player.state, cam: c.toArray(), head: h.toArray(),
       yaw: Math.atan2(-f.x, -f.z), body: [u.player.body.x, u.player.body.y, u.player.body.z],
       presenting: u.renderer.xr.isPresenting, follow: u.cameraRig.followMode });
@@ -42,6 +43,13 @@ check('VR button offered when a headset is present', label.includes('Enter VR') 
 await page.click('#vr');
 await page.waitForFunction(() => window.ukemi.renderer.xr.isPresenting, null, { timeout: 20000 });
 await page.waitForTimeout(1500);
+// SwiftShader stalls for a few seconds while a new scene is sorted; wait for
+// XR frames to flow again before timing-sensitive steps.
+const settle = () => page.waitForFunction(async () => {
+  window.__fc = 0;
+  await new Promise((r) => setTimeout(r, 500));
+  return window.__fc >= 15;
+}, null, { timeout: 60000, polling: 100 });
 const take = () => page.evaluate(() => { const r = window.__rec; window.__rec = []; return r; });
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
@@ -170,6 +178,7 @@ check('trigger switches scene inside VR, headset back in the avatar head',
   last.presenting && last.state === 'idle' && dist(last.cam, last.head) < 0.05 && !(await page.evaluate(() => window.ukemi.menu.open)),
   `${dist(last.cam, last.head).toFixed(3)} m`);
 
+await settle();
 // Room-scale: physically lean/walk the headset forward. The body stops at the
 // first obstacle; once the head itself is inside geometry the view fades.
 const fadeSeen = await page.evaluate(async () => {
@@ -201,6 +210,33 @@ const fadeSeen = await page.evaluate(async () => {
 check('headset walked through a wall fades the view', fadeSeen > 0.5, `max fade ${fadeSeen.toFixed(2)}, wall ${(await page.evaluate(() => window.__wallDist))?.toFixed?.(2)} m away`);
 await page.waitForTimeout(800);
 check('fade clears when the head comes back out', (await page.evaluate(() => window.ukemi.fade)) < 0.1);
+
+// Auto demo in the headset. Any button takes over (and does nothing else);
+// a headset left still for 8 s and then picked up is a new visitor: the
+// demo plays again from ON. WebXR gives a page no proximity sensor, so this
+// is inferred from the pose.
+await settle();
+await page.evaluate(() => window.ukemi.armDemo());
+await page.waitForTimeout(600);
+const followBefore = await page.evaluate(() => window.ukemi.settings.follow);
+check('auto demo plays in VR', await page.evaluate(() => window.ukemi.demo.active));
+await press('right', 'a-button');
+const took = await page.evaluate(() => ({ active: window.ukemi.demo.active, armed: window.ukemi.autoDemo, follow: window.ukemi.settings.follow }));
+check('A takes over from the demo without switching the camera', !took.active && took.armed && took.follow === followBefore, JSON.stringify(took));
+await page.waitForTimeout(5000);
+await press('right', 'b-button'); // still someone there: resets the 10 s idle timer
+await page.waitForTimeout(4500);
+const off = await page.evaluate(() => ({ off: window.ukemi.wear.off, active: window.ukemi.demo.active }));
+check('headset lying still for 8 s counts as taken off', off.off && !off.active, JSON.stringify(off));
+await page.evaluate(async () => {
+  const d = window.__xrDevice;
+  const y = d.position.y;
+  for (let i = 1; i <= 6; ++i) { d.position.y = y + i * 0.02; await new Promise((r) => setTimeout(r, 60)); }
+});
+await page.waitForTimeout(800);
+const on = await page.evaluate(() => ({ active: window.ukemi.demo.active, phase: window.ukemi.demo.phaseIndex, off: window.ukemi.wear.off }));
+check('picking the headset up restarts the demo from ON', on.active && on.phase === 0 && !on.off, JSON.stringify(on));
+await page.evaluate(() => window.ukemi.disarmDemo());
 
 // IWER covers the page with its own view while presenting (a real headset has
 // no page to click either), so exit through the same handler the button uses.
