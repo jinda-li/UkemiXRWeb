@@ -1,17 +1,23 @@
 // Auto demo (booth mode): the avatar walks a fixed route by itself while the
 // camera alternates between UkemiXR's steady cuts (tech ON, 8 s) and a plain
 // first-person follow camera (tech OFF, 5 s). Each phase walks the same route
-// from the same start (OFF only its first part), then teleports back, so anyone who puts the headset on
-// feels the difference on identical motion without touching a controller.
+// from the same start (OFF only its first part), then teleports back, so
+// anyone who puts the headset on feels the difference on identical motion
+// without touching a controller.
+//
+// The walk is stop-and-go (WALK_PATTERN): every start and stop is a moment
+// the two cameras handle differently (ON cuts back into the head on a stop
+// and lets the body walk out ahead on a start; OFF just lurches along).
 //
 // The route is fixed per scene: when a scene loads it is traced once from the
 // spawn through the collision world (probe ahead, steer to open space, with a
 // gentle deterministic curve) and stored as timed samples. At run time the
-// stick is set each frame to exactly the step to the next sample, so the
-// avatar walks the same path at the same pace every time. In the OFF phase the view turns smoothly with
-// the walk (what an ordinary first-person camera does, and what makes people
-// sick); in the ON phase the camera never rotates on its own, it snap-turns
-// when the walk has drifted too far from the view.
+// stick is set each frame to exactly the step to the next sample (and let go
+// during the stops), so the avatar walks the same path at the same pace every
+// time. In the OFF phase the view turns smoothly with the walk (what an
+// ordinary first-person camera does, and what makes people sick); in the ON
+// phase the camera never rotates on its own, it snap-turns when the walk has
+// drifted too far from the view.
 
 import * as THREE from 'three';
 import { deltaAngle, yawForward } from '../locomotion/CameraRig.js';
@@ -21,6 +27,8 @@ export const PHASES = [
   { follow: 'firstPerson', tech: false, seconds: 5 },
 ];
 const LONGEST = Math.max(...PHASES.map((p) => p.seconds));
+// Seconds of walking and standing, alternating, starting with a walk; repeats.
+const WALK_PATTERN = [1.7, 1.0, 1.5, 1.1];
 
 const DEG = Math.PI / 180;
 const TRACE_DT = 1 / 30;
@@ -37,12 +45,12 @@ export class AutoDemo {
     this.active = false;
     this.stickMagnitude = 0.6;
     this.startDelay = 0.6; // stand still for a moment at the start of each run
-    this.walkSeconds = LONGEST - this.startDelay - 0.4; // route length in time
+    this.routeSeconds = LONGEST - this.startDelay - 0.4; // route length in time, stops included
     this.turnRate = 3; // rad/s the walk heading may turn while pursuing the route
     this.viewTurnRate = 2.5; // OFF phase: how fast the view chases the heading
     this.snapThreshold = 55 * DEG; // ON phase: snap once the walk is this far off
     this.onPhase = null; // (phase, index) => void
-    this.route = null; // { world, yaw, dt, points: [{x, z}] } sampled every dt
+    this.route = null; // { world, yaw, dt, points: [{x, z, walk}] } sampled every dt
     this.lookAhead = 0.3; // s, for the walk direction the view follows
     this._phase = 0;
     this._t = 0;
@@ -124,6 +132,8 @@ export class AutoDemo {
       const k = Math.floor(f), u = f - k, a = pts[k], c = pts[Math.min(last, k + 1)];
       return { x: a.x + (c.x - a.x) * u, z: a.z + (c.z - a.z) * u };
     };
+    // A stop: let go of the stick, stand where the route stands.
+    if (!pts[Math.min(last, Math.floor(runT / route.dt))].walk) return raw;
     // The step that lands on the route one frame from now.
     const next = at(runT + dt);
     const step = new THREE.Vector3(next.x - b.x, 0, next.z - b.z);
@@ -164,16 +174,30 @@ export class AutoDemo {
     return raw;
   }
 
-  // Walk a virtual body from the spawn for walkSeconds, steering to open
-  // space, sampling its position every TRACE_DT. Deterministic for a scene.
+  // Walk a virtual body from the spawn for routeSeconds (stopping as
+  // WALK_PATTERN says), steering to open space, sampling its position every
+  // TRACE_DT. Deterministic for a scene.
   _trace(world, s) {
     const body = { x: s.x, y: s.y, z: s.z };
     world.resetTrail(body);
     const speed = this.player.moveSpeed * this.stickMagnitude;
     const dt = TRACE_DT;
     let heading = s.yaw, target = s.yaw;
-    const points = [{ x: body.x, z: body.z }];
-    for (let i = 1, t = 0; t < this.walkSeconds; ++i, t += dt) {
+    const points = [{ x: body.x, z: body.z, walk: true }];
+    const period = WALK_PATTERN.reduce((a, b) => a + b, 0);
+    const walking = (t) => {
+      let u = t % period;
+      for (let k = 0; k < WALK_PATTERN.length; ++k) {
+        if (u < WALK_PATTERN[k]) return k % 2 === 0;
+        u -= WALK_PATTERN[k];
+      }
+      return true;
+    };
+    for (let i = 1, t = 0; t < this.routeSeconds; ++i, t += dt) {
+      if (!walking(t)) {
+        points.push({ x: body.x, z: body.z, walk: false });
+        continue;
+      }
       if (i % 4 === 0) {
         // A gentle S-curve so the OFF phase has to turn, and turning is
         // where an ordinary first-person camera hurts most.
@@ -189,7 +213,7 @@ export class AutoDemo {
       if (Math.hypot(body.x - bx, body.z - bz) < speed * dt * 0.6) {
         heading = target = this._openHeading(world, body, heading, PROBES.length, 1.2);
       }
-      points.push({ x: body.x, z: body.z });
+      points.push({ x: body.x, z: body.z, walk: true });
     }
     world.resetTrail(s);
     return points;

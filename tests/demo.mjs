@@ -54,13 +54,26 @@ check('banner shows ON in steady cuts and OFF in first person',
 check('banner says only ON / OFF and Ukemi Comfort Tech', r.every((f) => f.bannerText === `${f.phase === 0 ? 'ON' : 'OFF'} Ukemi Comfort Tech`), r[0].bannerText);
 const loco = r.filter((f) => f.loco);
 const stuck = loco.filter((f) => f.speed < 0.25).length / Math.max(1, loco.length);
-check('avatar walks by itself most of the time', loco.length > r.length * 0.6 && stuck < 0.15,
+check('avatar walks by itself, rarely blocked', loco.length > r.length * 0.4 && stuck < 0.15,
   `${((100 * loco.length) / r.length).toFixed(0)}% walking, ${(100 * stuck).toFixed(0)}% of it blocked`);
 
 // Fixed route: every run starts at the spawn and walks the same path.
 const runs = [];
 r.forEach((f, i) => { if (i === 0 || f.phase !== r[i - 1].phase) runs.push({ phase: f.phase, path: [] }); runs.at(-1).path.push(f.body); });
 const full = runs.slice(1, -1);
+// Stop-and-go: inside each run the avatar stops (back to idle) and walks on.
+{
+  let k = 0;
+  const stops = [];
+  r.forEach((f, i) => {
+    if (i && f.phase !== r[i - 1].phase) k++;
+    if (k < 1 || k > full.length) return;
+    const prev = r[i - 1];
+    if (prev.phase === f.phase && prev.loco && !f.loco) stops[k - 1] = (stops[k - 1] || 0) + 1;
+  });
+  check('walk is stop-and-go (ON stops twice, OFF once)', full.every((run, i) => (stops[i] || 0) >= (run.phase === 0 ? 2 : 1)),
+    full.map((run, i) => `${run.phase ? 'OFF' : 'ON'}:${stops[i] || 0}`).join(' '));
+}
 const startOff = Math.max(...full.map((run) => Math.hypot(run.path[0][0] - spawnXZ[0], run.path[0][1] - spawnXZ[1])));
 check('each run teleports back to the start', startOff < 0.15, `max ${startOff.toFixed(2)} m from spawn`);
 let dev = 0;
