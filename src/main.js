@@ -692,8 +692,13 @@ function step(dt) {
         (len > 0.05 && world.raycast(a.x, a.y, a.z, d.x, d.y, d.z, len) < len)) wallTarget = 0.92;
   }
   wallFade += (wallTarget - wallFade) * Math.min(1, dt * 10);
-  fade.visible = wallFade > 0.01;
-  fade.material.opacity = wallFade;
+  // The auto demo's switch card darkens the same shell.
+  const cover = demo.active && mode === 'walk' ? demo.cover : 0;
+  const label = demo.active && mode === 'walk' ? demo.cardLabel : 0;
+  fade.material.opacity = Math.max(wallFade, cover);
+  fade.visible = fade.material.opacity > 0.01;
+  demoCard.material.opacity = label;
+  demoCard.visible = label > 0.01;
 
   for (const hand of ['left', 'right']) {
     const g = guides[hand], e = xr.hands[hand];
@@ -1143,6 +1148,8 @@ addEventListener('visibilitychange', () => {
 // the #demo-banner. Both say whether UkemiXR's camera is on right now.
 const demoBadge = makeDemoBadge();
 camera.add(demoBadge);
+const demoCard = makeDemoCard();
+camera.add(demoCard);
 let demoUiKey = '';
 let demoWasActive = false;
 
@@ -1167,11 +1174,51 @@ function updateDemoUi(force = false) {
   banner.classList.toggle('off', !ph.tech);
   $('demo-state').textContent = ph.tech ? 'ON' : 'OFF';
   demoBadge.draw(ph.tech);
+  demoCard.draw(ph.tech);
 }
 
 function debugLine() {
   const r = lastRestart ? `${lastRestart.reason}, ${Math.round(time - lastRestart.at)} s ago` : 'none yet';
   return `session ${wearState} · last restart: ${r}`;
+}
+
+// The switch card's label: big ON / OFF over the blacked-out view. Drawn
+// after the fade shell (both skip the depth test), so it sits on top of it.
+function makeDemoCard() {
+  const W = 1024, H = 520;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const width = 0.9;
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, (width * H) / W),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, depthTest: false, depthWrite: false, toneMapped: false }),
+  );
+  m.draw = (on) => {
+    const col = on ? '#34d399' : '#f87171';
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = col;
+    g.beginPath();
+    g.roundRect(W / 2 - 260, 40, 520, 290, 56);
+    g.fill();
+    g.fillStyle = '#0b0e13';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = '800 210px system-ui, sans-serif';
+    g.fillText(on ? 'ON' : 'OFF', W / 2, 192);
+    g.fillStyle = '#ffffff';
+    g.font = '700 76px system-ui, sans-serif';
+    g.fillText('Ukemi Comfort Tech', W / 2, 440, W - 40);
+    tex.needsUpdate = true;
+  };
+  m.position.set(0, 0, -1.2);
+  m.renderOrder = fade.renderOrder + 1;
+  m.visible = false;
+  return m;
 }
 
 function makeDemoBadge() {
@@ -1241,6 +1288,7 @@ window.ukemi = {
   get mode() { return mode; },
   get current() { return current; },
   get fade() { return fade.material.opacity; },
+  get card() { return demoCard.visible ? demoCard.material.opacity : 0; },
   loadSplat,
   applySettings,
   respawn,

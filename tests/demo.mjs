@@ -36,6 +36,7 @@ const r = await page.evaluate(() => {
       phase: u.demo.phaseIndex, follow: u.cameraRig.followMode, loco: u.player.isLocomoting,
       speed: u.player.speed, visible: u.avatar.root.visible, off: c.distanceTo(h),
       cam: c.toArray(), yaw: u.cameraRig.hmdYaw(), body: [u.player.body.x, u.player.body.z],
+      fade: u.fade, card: u.card,
       banner: document.getElementById('demo-state').textContent,
       bannerText: document.getElementById('demo-banner').textContent.replace(/\s+/g, ' ').trim(),
       bannerShown: !document.getElementById('demo-banner').hidden,
@@ -56,6 +57,19 @@ const loco = r.filter((f) => f.loco);
 const stuck = loco.filter((f) => f.speed < 0.25).length / Math.max(1, loco.length);
 check('avatar walks by itself, rarely blocked', loco.length > r.length * 0.4 && stuck < 0.15,
   `${((100 * loco.length) / r.length).toFixed(0)}% walking, ${(100 * stuck).toFixed(0)}% of it blocked`);
+
+// Switch card: each phase opens on black with the big label, and the
+// teleport back to the start happens while the view is black.
+{
+  const starts = [];
+  r.forEach((f, i) => { if (i && f.phase !== r[i - 1].phase) starts.push(i); });
+  const cardOk = starts.every((i) => r.slice(i, i + 25).every((f) => f.fade > 0.99 && f.card > 0.99));
+  const jumps = r.map((f, i) => (i && Math.hypot(f.body[0] - r[i - 1].body[0], f.body[1] - r[i - 1].body[1]) > 0.3 ? i : -1)).filter((i) => i > 0);
+  const hidden = jumps.every((i) => r[i].fade > 0.99);
+  const clear = r.filter((f, i) => starts.some((st) => i > st + 60 && i < st + 240)).every((f) => f.fade < 0.01 && f.card < 0.01);
+  check('switch card: black + ON/OFF label at each switch, teleport hidden, clear in between', cardOk && hidden && jumps.length >= starts.length && clear,
+    `${starts.length} switches, ${jumps.length} teleports`);
+}
 
 // Fixed route: every run starts at the spawn and walks the same path.
 const runs = [];

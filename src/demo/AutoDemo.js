@@ -5,6 +5,10 @@
 // anyone who puts the headset on feels the difference on identical motion
 // without touching a controller.
 //
+// Every switch goes through a card: the view fades to black (and the
+// avatar is teleported back to the start while nothing is visible), a big
+// ON / OFF shows, then the view fades back in and the walk begins.
+//
 // The walk is stop-and-go (WALK_PATTERN): every start and stop is a moment
 // the two cameras handle differently (ON cuts back into the head on a stop
 // and lets the body walk out ahead on a start; OFF just lurches along).
@@ -27,6 +31,9 @@ export const PHASES = [
   { follow: 'firstPerson', tech: false, seconds: 5 },
 ];
 const LONGEST = Math.max(...PHASES.map((p) => p.seconds));
+// Switch card (seconds): fade out at the end of a phase, then at the start
+// of the next one hold on black with the label and fade back in.
+export const CARD = { fadeOut: 0.3, hold: 0.5, fadeIn: 0.3 };
 // Seconds of walking and standing, alternating, starting with a walk; repeats.
 const WALK_PATTERN = [1.7, 1.0, 1.5, 1.1];
 
@@ -44,7 +51,7 @@ export class AutoDemo {
     this.respawn = respawn;
     this.active = false;
     this.stickMagnitude = 0.6;
-    this.startDelay = 0.6; // stand still for a moment at the start of each run
+    this.startDelay = CARD.hold + CARD.fadeIn; // walk off as the view clears
     this.routeSeconds = LONGEST - this.startDelay - 0.4; // route length in time, stops included
     this.turnRate = 3; // rad/s the walk heading may turn while pursuing the route
     this.viewTurnRate = 2.5; // OFF phase: how fast the view chases the heading
@@ -62,6 +69,20 @@ export class AutoDemo {
   get follow() { return this.phase.follow; }
   // Seconds left in the current phase.
   get remaining() { return Math.max(0, this.phase.seconds - this._t); }
+
+  // Switch card: how black the view is (0..1) and how visible the label.
+  get cover() {
+    const t = this._t, end = this.phase.seconds;
+    if (t > end - CARD.fadeOut) return Math.min(1, (t - (end - CARD.fadeOut)) / CARD.fadeOut);
+    return this.cardLabel;
+  }
+
+  get cardLabel() {
+    const t = this._t;
+    if (t < CARD.hold) return 1;
+    if (t < CARD.hold + CARD.fadeIn) return 1 - (t - CARD.hold) / CARD.fadeIn;
+    return 0;
+  }
 
   play() {
     this.active = true;
